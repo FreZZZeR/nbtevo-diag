@@ -45,6 +45,28 @@ def _s16(d, i=0):
 
 
 @dataclass
+class Dec:
+    """Declarative affine decode: value = raw * num / den + offset, where raw is the
+    big-endian integer in the first ``width`` bytes (two's-complement if ``signed``).
+
+    This is the single source of truth for decoding a single DID/PID: the Python reader
+    calls it, and ``codegen/gen_dids.py`` (in nbtevo-id6-apps) emits these same fields into
+    the C table ``dids.h``. Change a scale here and the native collector follows — no drift.
+    """
+    width: int
+    num: int = 1
+    den: int = 1
+    offset: float = 0.0
+    signed: bool = False
+
+    def __call__(self, d) -> float:
+        if len(d) < self.width:
+            raise ValueError("short data: need %d bytes" % self.width)
+        raw = int.from_bytes(bytes(d[: self.width]), "big", signed=self.signed)
+        return raw * self.num / self.den + self.offset
+
+
+@dataclass
 class Signal:
     key: str
     label: str
@@ -84,26 +106,26 @@ def _sig(*a, **k) -> Signal:
 # Standard OBD-II mode 01 (SAE J1979) — works on the diesel; verify-on-car but high confidence
 # ---------------------------------------------------------------------------
 STANDARD = [
-    _sig("coolant", "Coolant temp", DME, OBD, 0x05, lambda d: _u8(d) - 40, "°C", "engine_temp", "standard", -40, 215),
-    _sig("oil_temp", "Oil temp", DME, OBD, 0x5C, lambda d: _u8(d) - 40, "°C", "engine_temp", "standard", -40, 210),
-    _sig("iat", "Intake air temp", DME, OBD, 0x0F, lambda d: _u8(d) - 40, "°C", "engine_temp", "standard", -40, 215),
-    _sig("ambient", "Ambient temp", DME, OBD, 0x46, lambda d: _u8(d) - 40, "°C", "ambient", "standard", -40, 215),
-    _sig("rpm", "Engine RPM", DME, OBD, 0x0C, lambda d: _u16(d) / 4, "rpm", "driveline", "standard", 0, 6000),
-    _sig("speed", "Vehicle speed", DME, OBD, 0x0D, lambda d: _u8(d), "km/h", "driveline", "standard", 0, 320),
-    _sig("map", "Manifold abs press", DME, OBD, 0x0B, lambda d: _u8(d), "kPa", "forced_induction", "standard", 0, 400),
-    _sig("baro", "Barometric press", DME, OBD, 0x33, lambda d: _u8(d), "kPa", "ambient", "standard", 50, 110),
-    _sig("maf", "Mass air flow", DME, OBD, 0x10, lambda d: _u16(d) / 100, "g/s", "forced_induction", "standard", 0, 655),
-    _sig("load", "Engine load", DME, OBD, 0x04, lambda d: _u8(d) * 100 / 255, "%", "performance", "standard", 0, 100),
-    _sig("throttle", "Throttle pos", DME, OBD, 0x11, lambda d: _u8(d) * 100 / 255, "%", "performance", "standard", 0, 100),
-    _sig("pedal", "Accelerator pedal", DME, OBD, 0x5A, lambda d: _u8(d) * 100 / 255, "%", "performance", "standard", 0, 100),
-    _sig("timing", "Timing advance", DME, OBD, 0x0E, lambda d: _u8(d) / 2 - 64, "°", "performance", "standard", -64, 64),
-    _sig("torque_pct", "Actual torque", DME, OBD, 0x62, lambda d: _u8(d) - 125, "%", "performance", "standard", -125, 130),
-    _sig("ref_torque", "Reference torque", DME, OBD, 0x63, lambda d: _u16(d), "Nm", "performance", "standard", 0, 2000),
-    _sig("fuel_rate", "Fuel rate", DME, OBD, 0x5E, lambda d: _u16(d) / 20, "L/h", "fuel", "standard", 0, 400),
-    _sig("fuel_level", "Fuel level", DME, OBD, 0x2F, lambda d: _u8(d) * 100 / 255, "%", "fuel", "standard", 0, 100),
-    _sig("ctrl_voltage", "Module voltage", DME, OBD, 0x42, lambda d: _u16(d) / 1000, "V", "electrical", "standard", 0, 30),
-    _sig("egr_cmd", "Commanded EGR", DME, OBD, 0x2C, lambda d: _u8(d) * 100 / 255, "%", "aftertreatment", "standard", 0, 100),
-    _sig("run_time", "Engine run time", DME, OBD, 0x1F, lambda d: _u16(d), "s", "misc", "standard", 0, 65535),
+    _sig("coolant", "Coolant temp", DME, OBD, 0x05, Dec(1, offset=-40), "°C", "engine_temp", "standard", -40, 215),
+    _sig("oil_temp", "Oil temp", DME, OBD, 0x5C, Dec(1, offset=-40), "°C", "engine_temp", "standard", -40, 210),
+    _sig("iat", "Intake air temp", DME, OBD, 0x0F, Dec(1, offset=-40), "°C", "engine_temp", "standard", -40, 215),
+    _sig("ambient", "Ambient temp", DME, OBD, 0x46, Dec(1, offset=-40), "°C", "ambient", "standard", -40, 215),
+    _sig("rpm", "Engine RPM", DME, OBD, 0x0C, Dec(2, den=4), "rpm", "driveline", "standard", 0, 6000),
+    _sig("speed", "Vehicle speed", DME, OBD, 0x0D, Dec(1), "km/h", "driveline", "standard", 0, 320),
+    _sig("map", "Manifold abs press", DME, OBD, 0x0B, Dec(1), "kPa", "forced_induction", "standard", 0, 400),
+    _sig("baro", "Barometric press", DME, OBD, 0x33, Dec(1), "kPa", "ambient", "standard", 50, 110),
+    _sig("maf", "Mass air flow", DME, OBD, 0x10, Dec(2, den=100), "g/s", "forced_induction", "standard", 0, 655),
+    _sig("load", "Engine load", DME, OBD, 0x04, Dec(1, num=100, den=255), "%", "performance", "standard", 0, 100),
+    _sig("throttle", "Throttle pos", DME, OBD, 0x11, Dec(1, num=100, den=255), "%", "performance", "standard", 0, 100),
+    _sig("pedal", "Accelerator pedal", DME, OBD, 0x5A, Dec(1, num=100, den=255), "%", "performance", "standard", 0, 100),
+    _sig("timing", "Timing advance", DME, OBD, 0x0E, Dec(1, den=2, offset=-64), "°", "performance", "standard", -64, 64),
+    _sig("torque_pct", "Actual torque", DME, OBD, 0x62, Dec(1, offset=-125), "%", "performance", "standard", -125, 130),
+    _sig("ref_torque", "Reference torque", DME, OBD, 0x63, Dec(2), "Nm", "performance", "standard", 0, 2000),
+    _sig("fuel_rate", "Fuel rate", DME, OBD, 0x5E, Dec(2, den=20), "L/h", "fuel", "standard", 0, 400),
+    _sig("fuel_level", "Fuel level", DME, OBD, 0x2F, Dec(1, num=100, den=255), "%", "fuel", "standard", 0, 100),
+    _sig("ctrl_voltage", "Module voltage", DME, OBD, 0x42, Dec(2, den=1000), "V", "electrical", "standard", 0, 30),
+    _sig("egr_cmd", "Commanded EGR", DME, OBD, 0x2C, Dec(1, num=100, den=255), "%", "aftertreatment", "standard", 0, 100),
+    _sig("run_time", "Engine run time", DME, OBD, 0x1F, Dec(2), "s", "misc", "standard", 0, 65535),
 ]
 
 # ---------------------------------------------------------------------------
@@ -138,14 +160,14 @@ COMPUTED = [
 # NOT valid until validated. Decodes are the gas scalings; keep for the prober to try.
 # ---------------------------------------------------------------------------
 BMW_CANDIDATE = [
-    _sig("boost_abs_bmw", "Boost abs (BMW)", DME, UDS, 0x4205, lambda d: _u16(d) / 128, "kPa", "forced_induction", "bmw-candidate", note="B58 gas; N57 unverified"),
-    _sig("ambient_bmw", "Ambient abs (BMW)", DME, UDS, 0x4201, lambda d: _u16(d) / 256, "kPa", "ambient", "bmw-candidate", note="B58 gas; N57 unverified"),
-    _sig("rail_bmw", "Rail pressure (BMW)", DME, UDS, 0x56D7, lambda d: _u16(d) / 50, "bar", "pressure", "bmw-candidate", note="B58 ~250bar GDI; N57 common-rail ~2000bar — SCALE WRONG, re-derive"),
-    _sig("oil_press_bmw", "Oil pressure (BMW)", DME, UDS, 0x586F, lambda d: _u16(d) / 1000, "bar", "pressure", "bmw-candidate", note="B58 gas; N57 may lack a continuous sensor"),
-    _sig("coolant_bmw", "Coolant (BMW)", DME, UDS, 0x4300, lambda d: _u16(d) / 10 - 273.15, "°C", "engine_temp", "bmw-candidate", note="B58 gas; N57 unverified"),
-    _sig("iat_bmw", "Intake air (BMW)", DME, UDS, 0x580F, lambda d: _u8(d) * 0.75 - 48, "°C", "engine_temp", "bmw-candidate", note="B58 gas; N57 unverified"),
-    _sig("timing_bmw", "Ignition timing (BMW)", DME, UDS, 0x4A49, lambda d: _s16(d) / 10, "°", "performance", "bmw-candidate", note="spark concept; N/A on diesel"),
-    _sig("trans_temp", "Transmission temp", EGS, UDS, 0xDA12, lambda d: _u16(d) - 48, "°C", "driveline", "bmw-candidate", note="EGS/ZF 8HP; most likely to carry to N57 — still validate"),
+    _sig("boost_abs_bmw", "Boost abs (BMW)", DME, UDS, 0x4205, Dec(2, den=128), "kPa", "forced_induction", "bmw-candidate", note="B58 gas; N57 unverified"),
+    _sig("ambient_bmw", "Ambient abs (BMW)", DME, UDS, 0x4201, Dec(2, den=256), "kPa", "ambient", "bmw-candidate", note="B58 gas; N57 unverified"),
+    _sig("rail_bmw", "Rail pressure (BMW)", DME, UDS, 0x56D7, Dec(2, den=50), "bar", "pressure", "bmw-candidate", note="B58 ~250bar GDI; N57 common-rail ~2000bar — SCALE WRONG, re-derive"),
+    _sig("oil_press_bmw", "Oil pressure (BMW)", DME, UDS, 0x586F, Dec(2, den=1000), "bar", "pressure", "bmw-candidate", note="B58 gas; N57 may lack a continuous sensor"),
+    _sig("coolant_bmw", "Coolant (BMW)", DME, UDS, 0x4300, Dec(2, den=10, offset=-273.15), "°C", "engine_temp", "bmw-candidate", note="B58 gas; N57 unverified"),
+    _sig("iat_bmw", "Intake air (BMW)", DME, UDS, 0x580F, Dec(1, num=3, den=4, offset=-48), "°C", "engine_temp", "bmw-candidate", note="B58 gas; N57 unverified (0.75 = 3/4)"),
+    _sig("timing_bmw", "Ignition timing (BMW)", DME, UDS, 0x4A49, Dec(2, den=10, signed=True), "°", "performance", "bmw-candidate", note="spark concept; N/A on diesel"),
+    _sig("trans_temp", "Transmission temp", EGS, UDS, 0xDA12, Dec(2, offset=-48), "°C", "driveline", "bmw-candidate", note="EGS/ZF 8HP; most likely to carry to N57 — still validate"),
 ]
 
 # ---------------------------------------------------------------------------

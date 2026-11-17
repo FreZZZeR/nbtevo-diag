@@ -34,8 +34,9 @@ HMI plugin so it runs from iDrive.
 ## Install & use (Phase 0, from a dev machine on ENET)
 
 ```bash
-pip install evocode            # the transport
-pip install -e .               # this package  ->  `nbtevo-diag`
+# evocode (the transport) isn't on PyPI yet — install it from its repo first:
+pip install "evocode @ git+https://github.com/FreZZZeR/evocode.git@v0.4.0"
+pip install -e .               # this package  ->  `nbtevo-diag`   (or: pip install .)
 
 nbtevo-diag catalog                          # the signal catalog (offline, no car)
 nbtevo-diag modules --host 169.254.x.x       # enumerate awake ECUs

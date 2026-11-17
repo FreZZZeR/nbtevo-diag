@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 from typing import Optional
 
+from . import control
 from . import dtc as dtcmod
 from . import probe as probemod
 from . import signals as sig
@@ -143,6 +144,41 @@ def cmd_scan(a) -> int:
     return 0
 
 
+def _consent(h) -> None:
+    """VIN gate — a commit write is refused unless it's the car you declared you own."""
+    import os
+    want = os.environ.get("NBTEVO_OWN_VIN")
+    if not want:
+        raise SystemExit("refusing --commit: set NBTEVO_OWN_VIN to your own car's VIN")
+    try:
+        vin = transport.did(h, 0x12, 0xF190).decode("latin1").strip("\x00 ")
+    except Exception as e:  # noqa: BLE001
+        raise SystemExit("refusing --commit: could not read VIN (%s)" % e)
+    if vin != want:
+        raise SystemExit("refusing --commit: connected VIN %s != NBTEVO_OWN_VIN" % vin)
+
+
+def cmd_xdrive(a) -> int:
+    h = transport.connect(a.host, a.timeout)
+    try:
+        if a.mode == "status":
+            for k, v in control.status(h).items():
+                print("  %-10s %s" % (k, ("0x%06X" % v) if k == "variant" and isinstance(v, int) else v))
+            return 0
+        target = control.RWD if a.mode == "rwd" else control.AWD
+        if a.mode == "rwd":
+            print("⚠ Rear-wheel drive disables the front axle — changes traction/DSC behaviour.")
+            print("  Track / private land only, never on a public road. At your own risk.")
+        if a.commit:
+            _consent(h)  # VIN gate before any byte goes to the car
+        done, msg = control.set_mode(h, target, commit=a.commit, require_park=not a.no_park_check,
+                                     require_engine_off=not a.allow_running)
+        print("  " + msg)
+        return 0 if (done or not a.commit) else 1
+    finally:
+        h.close()
+
+
 def main(argv: Optional[list] = None) -> int:
     ap = argparse.ArgumentParser(prog="nbtevo-diag", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -170,6 +206,14 @@ def main(argv: Optional[list] = None) -> int:
     p.add_argument("--hunt", action="store_true", help="try the curated N57 candidate DIDs")
     p.add_argument("--band", default="4000-5FFF", help="DID range hex, e.g. 4000-5FFF")
     p.set_defaults(fn=cmd_scan)
+
+    p = sub.add_parser("xdrive", help="xDelete-style temporary RWD (actuation; dry-run unless --commit)")
+    _host(p)
+    p.add_argument("mode", choices=["status", "rwd", "awd"])
+    p.add_argument("--commit", action="store_true", help="perform the write (VIN-gated)")
+    p.add_argument("--no-park-check", action="store_true", help="waive the Park check (standstill still enforced)")
+    p.add_argument("--allow-running", action="store_true", help="waive the engine-off check (standstill + Park still enforced)")
+    p.set_defaults(fn=cmd_xdrive)
 
     a = ap.parse_args(argv)
     return a.fn(a)

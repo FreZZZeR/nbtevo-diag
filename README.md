@@ -80,6 +80,38 @@ integrity and decode math — with no car and no evocode. **IDEmu can't test thi
 doesn't expose the HSFZ diagnostic endpoint (6801), so it's only useful later for rendering the HMI
 plugin, not for the data engine. The data engine is validated on the car (or a mock gateway).
 
+## xDrive control — actuation, with a software fuse
+
+Beyond read-only diagnostics, one **actuation** is included: xDelete-style **temporary rear-wheel
+drive** (ported from ID6_apps). The DSC (`0x29`) commands the transfer case via `2E DB E1 <0=RWD |
+1=AWD>`, after a variant + capability check, with a mode read-back.
+
+The reference refuses the write unless the car is stationary, in Park **and the engine is off** —
+and in BM3 form that last part is just a label the human is trusted to honour. Here every
+condition is a **code-enforced fuse** (`control.py`), engine-off included:
+
+- engaging RWD requires **standstill (speed = 0)** — a floor that is **not** bypassable;
+- Park is required by default (`--no-park-check` waives it; standstill still holds);
+- **engine-off is the default**, enforced in code — not dropped, not a label. Waive it
+  **consciously** with `--allow-running` (standstill + Park still hold). It stays the default
+  because the write is latch-like (the `0x0F2510` DSC only restores AWD on an ignition cycle) and
+  the module tracks RWD as a degraded state — engine-off is the quiescent, zero-driveline-torque
+  moment the controller expects;
+- **dry-run by default**; a real write needs `--commit`, which is additionally **VIN-gated**
+  (`NBTEVO_OWN_VIN`); the result is read back to confirm; AWD restores on an ignition cycle.
+
+```bash
+nbtevo-diag xdrive --host IP status          # variant / mode / speed / park / engine
+nbtevo-diag xdrive --host IP rwd             # dry-run: the plan + the interlock result
+NBTEVO_OWN_VIN=<your VIN> nbtevo-diag xdrive --host IP rwd --commit                  # engage RWD (stopped, Park, engine off)
+NBTEVO_OWN_VIN=<your VIN> nbtevo-diag xdrive --host IP rwd --commit --allow-running  # ...with the engine running, consciously
+nbtevo-diag xdrive --host IP awd --commit    # restore AWD
+```
+
+> ⚠ Disabling the front axle changes how the car behaves (traction, DSC/ABS). Track / private land
+> only, never on a public road, on your own car, at your own risk. The DSC variant + DIDs come from a
+> 340i (ID6_apps) — validate them on the 335d's DSC before a live write.
+
 ## Credits
 
 Built on the diagnostic plane of **evocode** (transport/UDS). Transport RE, module addressing and the

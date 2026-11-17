@@ -7,4 +7,4 @@ over ENET to discover and validate the car's real DIDs (the N57 map).
 Phase 1 (later, needs the QNX toolchain): port this engine into a native on-head-unit
 collector + HMI plugin so it runs from iDrive with no laptop and no OBD adapter.
 """
-__version__ = "0.0.1"
+__version__ = "0.1.0"

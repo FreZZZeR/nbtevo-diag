@@ -1,0 +1,14 @@
+# Car-specific data — never commit (VINs, logs, discovered maps tied to one car)
+/maps/*.json
+/pulled/
+*.log
+*.ncd
+*.fsc
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+build/
+dist/

@@ -113,6 +113,34 @@ nbtevo-diag xdrive --host IP awd --commit    # restore AWD
 > only, never on a public road, on your own car, at your own risk. The DSC variant + DIDs come from a
 > 340i (ID6_apps) — validate them on the 335d's DSC before a live write.
 
+## Deploy — ship the native app to the head unit
+
+The on-car layer ([nbtevo-id6-apps](https://github.com/FreZZZeR/nbtevo-id6-apps): collector +
+HMI plugin) is **delivered by this Python layer**, not by forking anyone's installer. `deploy.py`
+does two things, both reversible and dry-run by default:
+
+- **6801-lease coordination.** The on-head-unit collectors hold a private loopback lease on the
+  single diagnostic gateway (TCP 6801) that a laptop can't see — so running evocode/diag while a
+  collector is live means mutual timeouts. `deploy` (and any diagnostic session) **pauses the
+  collectors** for its duration and restarts them after (`collectors_paused`).
+- **Safe multi-file install** over the unit's dev SSH, reusing evocode's `fw` choreography (keep a
+  first `.orig` backup → upload a same-partition temp → verify the on-unit byte count → atomic
+  rename-over → chmod), and **all-or-nothing**: any failure rolls the whole set back.
+
+```bash
+# dry-run (writes nothing): show the plan + the lease steps
+nbtevo-diag deploy --host IP  build/libNbtGauges.so:/var/opt/hmi/data/ID5/Plugins/Gauges/libNbtGauges.so \
+                              --collector nbtevo-collector --restart "slay -f HmiMain3D"
+# perform it (VIN-gated), pausing the named collector for the transfer
+NBTEVO_OWN_VIN=<your VIN> nbtevo-diag deploy --host IP ... --collector nbtevo-collector \
+                              --start-collectors "/var/opt/car/bin/nbtevo-collector &" --commit
+nbtevo-diag deploy-revert --host IP /var/opt/hmi/data/ID5/Plugins/Gauges/libNbtGauges.so --commit
+```
+
+> The write path is **not yet exercised on a live unit** (it is host-tested against a fake unit).
+> The collector process name(s) and restart command are supplied by you — they are the on-car
+> app's, not hard-coded here.
+
 ## Credits
 
 Built on the diagnostic plane of **evocode** (transport/UDS). Transport RE, module addressing and the

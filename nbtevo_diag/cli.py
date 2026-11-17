@@ -7,6 +7,8 @@
   nbtevo-diag live    --host IP [keys...]  # poll + display live signals
   nbtevo-diag probe   --host IP [--group G]# read readable signals, show raw+decoded
   nbtevo-diag scan    --host IP --ecu 0x12 [--hunt | --band 4000-5FFF]  # discover DIDs
+  nbtevo-diag deploy  --host IP build/app.so:/var/opt/hmi/.../app.so --collector nbtevo-col [--commit]
+                                           # ship native artifact(s) over SSH (6801-lease aware)
 
 --host is the FEM gateway IP from discovery (evocode: `python -m evocode ...` or the ENET
 ident broadcast). Everything is read-only except `dtc --clear --commit`.
@@ -17,6 +19,7 @@ import argparse
 from typing import Optional
 
 from . import control
+from . import deploy as depmod
 from . import dtc as dtcmod
 from . import probe as probemod
 from . import signals as sig
@@ -179,6 +182,51 @@ def cmd_xdrive(a) -> int:
         h.close()
 
 
+def _parse_artifacts(pairs) -> list:
+    arts = []
+    for pr in pairs:
+        if ":" not in pr:
+            raise SystemExit("artifact must be LOCAL:REMOTE (got %r)" % pr)
+        local, remote = pr.split(":", 1)
+        arts.append(depmod.Artifact(local, remote))
+    return arts
+
+
+def _ssh_conn(a) -> dict:
+    conn = {"user": a.user, "port": a.port, "modern": a.modern, "timeout": a.timeout}
+    if a.key:
+        conn["key_filename"] = a.key
+    return conn
+
+
+def cmd_deploy(a) -> int:
+    ok = depmod.deploy(a.host, _parse_artifacts(a.artifacts), mount=a.mount, restart=a.restart,
+                       collectors=a.collector or (), start_collectors_cmd=a.start_collectors,
+                       commit=a.commit, **_ssh_conn(a))
+    return 0 if (ok or not a.commit) else 1
+
+
+def cmd_deploy_revert(a) -> int:
+    arts = [depmod.Artifact("", r) for r in a.remote]
+    ok = depmod.revert(a.host, arts, mount=a.mount, restart=a.restart,
+                       collectors=a.collector or (), start_collectors_cmd=a.start_collectors,
+                       commit=a.commit, **_ssh_conn(a))
+    return 0 if (ok or not a.commit) else 1
+
+
+def _ssh_args(p) -> None:
+    p.add_argument("--collector", action="append",
+                   help="on-HU collector process name to pause for the transfer (repeatable)")
+    p.add_argument("--start-collectors", help="command to restart the collectors afterwards")
+    p.add_argument("--restart", help="command to restart the HMI after the swap")
+    p.add_argument("--mount", default="/fs/sda0", help="partition to remount rw (default /fs/sda0)")
+    p.add_argument("--user", default="root")
+    p.add_argument("--key", help="SSH private key file")
+    p.add_argument("--port", type=int, default=22)
+    p.add_argument("--modern", action="store_true", help="modern sshd (skip legacy ssh-rsa coercion)")
+    p.add_argument("--commit", action="store_true", help="perform it (VIN-gated); default dry-run")
+
+
 def main(argv: Optional[list] = None) -> int:
     ap = argparse.ArgumentParser(prog="nbtevo-diag", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -214,6 +262,20 @@ def main(argv: Optional[list] = None) -> int:
     p.add_argument("--no-park-check", action="store_true", help="waive the Park check (standstill still enforced)")
     p.add_argument("--allow-running", action="store_true", help="waive the engine-off check (standstill + Park still enforced)")
     p.set_defaults(fn=cmd_xdrive)
+
+    p = sub.add_parser("deploy", help="ship native artifact(s) to the head unit over SSH "
+                       "(6801-lease aware; dry-run unless --commit)")
+    _host(p)
+    p.add_argument("artifacts", nargs="+", metavar="LOCAL:REMOTE",
+                   help="local path : absolute on-unit path (repeatable)")
+    _ssh_args(p)
+    p.set_defaults(fn=cmd_deploy)
+
+    p = sub.add_parser("deploy-revert", help="restore the *.orig backups a prior deploy kept")
+    _host(p)
+    p.add_argument("remote", nargs="+", help="absolute on-unit path(s) to revert")
+    _ssh_args(p)
+    p.set_defaults(fn=cmd_deploy_revert)
 
     a = ap.parse_args(argv)
     return a.fn(a)

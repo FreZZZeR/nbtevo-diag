@@ -12,3 +12,6 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+
+# local agent rules (names personal email; never publish)
+AGENTS.local.md

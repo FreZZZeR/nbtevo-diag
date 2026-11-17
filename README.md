@@ -119,3 +119,8 @@ plugin SDK from **[vandelayautollc/nbt-evo-toolkit](https://github.com/vandelaya
 (MIT). Live-signal collector pattern and B58 candidate DIDs from
 **[inotbarnacle/ID6_apps_prerelease](https://github.com/inotbarnacle/ID6_apps_prerelease)**. Plugin
 ABI lineage: **NBT-AAD**. License: Apache-2.0.
+
+## Development guardrail
+
+Committed git hooks block publishing private data and run the tests before every push.
+Activate once per clone: `git config core.hooksPath hooks` (details in `hooks/README.md`).

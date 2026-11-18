@@ -1,5 +1,7 @@
 # nbtevo-diag
 
+> **Language:** English · [Русский](README.ru.md) — see [TRANSLATING.md](TRANSLATING.md) to add one.
+
 On-head-unit diagnostics for the **BMW NBT EVO** (built for an **F30 335d**, N57 diesel, iDrive6):
 fault codes across modules and live engine/vehicle sensors, shown **in iDrive, with no OBD
 adapter**. The head unit already sits on the car's diagnostic network — it reaches every module
@@ -10,7 +12,7 @@ through the FEM gateway over HSFZ/UDS, the same plane evocode speaks. No dongle,
 
 ## Architecture (3 layers)
 
-1. **HMI plugin** — an iDrive menu with **Ошибки** (DTCs) and **Датчики** (gauges). Native C++/QNX;
+1. **HMI plugin** — an iDrive menu with **Faults** (DTCs) and **Sensors** (gauges). Native C++/QNX;
    plugin ABI from the NBT-EVO toolkit SDK / NBT-AAD. Visual target: the BoostDeck/ShiftDeck decks.
 2. **Collector** — a C worker on the head unit, polls the internal gateway (HSFZ 6801 → UDS) and
    feeds the plugin. Template: ID6_apps `collector.c`.

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nbtevo-diag"
-version = "0.2.1"
+version = "0.2.2"
 description = "On-head-unit diagnostics for BMW NBT EVO (F30): module DTCs + live engine/vehicle signals over HSFZ/UDS, no OBD adapter"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -23,7 +23,9 @@ classifiers = [
 dependencies = ["evocode>=0.4"]
 
 [project.optional-dependencies]
-deploy = ["evocode[ssh]"]       # `nbtevo-diag deploy` over the dev SSH (brings paramiko in)
+# deploy pins >=0.5: the restart path falls back to `evocode reset` (ECUReset 11 01, new in 0.5),
+# so the full delivery install must carry it. brings paramiko in via evocode's ssh extra.
+deploy = ["evocode[ssh]>=0.5"]
 test = ["pytest>=7"]
 
 [project.urls]

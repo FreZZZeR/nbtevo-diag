@@ -218,7 +218,8 @@ def _ssh_args(p) -> None:
     p.add_argument("--collector", action="append",
                    help="on-HU collector process name to pause for the transfer (repeatable)")
     p.add_argument("--start-collectors", help="command to restart the collectors afterwards")
-    p.add_argument("--restart", help="command to restart the HMI after the swap")
+    p.add_argument("--restart", help="HMI restart after the swap: 'appreset' (HMI-only, PID-verified) "
+                   "or a literal remote command; for a full stock re-read use `evocode reset` (UDS 11 01)")
     p.add_argument("--mount", default="/fs/sda0", help="partition to remount rw (default /fs/sda0)")
     p.add_argument("--user", default="root")
     p.add_argument("--key", help="SSH private key file")

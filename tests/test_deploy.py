@@ -163,6 +163,37 @@ def test_revert_restores_orig():
     assert "/p/app.so.orig" not in fake.files         # backup consumed by the restore
 
 
+class _AppresetRemote(FakeRemote):
+    """FakeRemote that models appreset: with restart_pid set, appreset gives HmiMain3D a new PID."""
+    def __init__(self, *a, restart_pid=None, **k):
+        super().__init__(*a, **k)
+        self.restart_pid = restart_pid
+    def run(self, cmd):
+        if "appreset" in cmd and self.restart_pid is not None:
+            self.cmds.append(cmd)
+            self.procs = ["%s /hmi/bin/HmiMain3D" % self.restart_pid]
+            return 0, "", ""
+        return super().run(cmd)
+
+
+_ONOFF = "/opt/core/bin/OnOffDSICommander"
+
+
+def test_restart_hmi_appreset_took():
+    fake = _AppresetRemote(files={_ONOFF: b"x"}, procs=["229425 /hmi/bin/HmiMain3D"], restart_pid="300100")
+    assert deploy.restart_hmi(fake, wait=0, log=_QUIET) is True     # new HmiMain3D PID == it reset
+
+
+def test_restart_hmi_appreset_did_not_take():
+    fake = _AppresetRemote(files={_ONOFF: b"x"}, procs=["229425 /hmi/bin/HmiMain3D"], restart_pid=None)
+    assert deploy.restart_hmi(fake, wait=0, log=_QUIET) is False    # PID unchanged -> appreset lied
+
+
+def test_restart_hmi_no_onoff_tool():
+    fake = FakeRemote(procs=["229425 /hmi/bin/HmiMain3D"])          # no OnOffDSICommander present
+    assert deploy.restart_hmi(fake, wait=0, log=_QUIET) is False
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

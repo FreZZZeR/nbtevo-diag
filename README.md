@@ -34,9 +34,9 @@ HMI plugin so it runs from iDrive.
 ## Install & use (Phase 0, from a dev machine on ENET)
 
 ```bash
-# evocode (the transport) isn't on PyPI yet — install it from its repo first:
-pip install "evocode @ git+https://github.com/FreZZZeR/evocode.git@v0.4.0"
-pip install -e .               # this package  ->  `nbtevo-diag`   (or: pip install .)
+pip install nbtevo-diag                 # core: diagnostics over ENET (pulls evocode)
+pip install "nbtevo-diag[deploy]"       # + evocode[ssh]/paramiko, to ship the app to the head unit
+# or from a checkout:  pip install -e .
 
 nbtevo-diag catalog                          # the signal catalog (offline, no car)
 nbtevo-diag modules --host 169.254.x.x       # enumerate awake ECUs
@@ -130,7 +130,7 @@ does two things, both reversible and dry-run by default:
 ```bash
 # dry-run (writes nothing): show the plan + the lease steps
 nbtevo-diag deploy --host IP  build/libNbtGauges.so:/var/opt/hmi/data/ID5/Plugins/Gauges/libNbtGauges.so \
-                              --collector nbtevo-collector --restart "slay -f HmiMain3D"
+                              --collector nbtevo-collector --restart appreset
 # perform it (VIN-gated), pausing the named collector for the transfer
 NBTEVO_OWN_VIN=<your VIN> nbtevo-diag deploy --host IP ... --collector nbtevo-collector \
                               --start-collectors "/var/opt/car/bin/nbtevo-collector &" --commit
@@ -138,8 +138,9 @@ nbtevo-diag deploy-revert --host IP /var/opt/hmi/data/ID5/Plugins/Gauges/libNbtG
 ```
 
 > The write path is **not yet exercised on a live unit** (it is host-tested against a fake unit).
-> The collector process name(s) and restart command are supplied by you — they are the on-car
-> app's, not hard-coded here.
+> The collector process name(s) are supplied by you — they are the on-car app's, not hard-coded.
+> `--restart appreset` restarts just the HMI (PID-verified — some heads' appreset returns 0 without
+> resetting); for a full stock re-read with no power-cycle use `evocode reset` (UDS 11 01).
 
 ## Credits
 

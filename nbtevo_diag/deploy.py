@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import os
 import shlex
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Sequence, Tuple
@@ -178,6 +179,62 @@ def _install_one(rem: Remote, art: Artifact, log: Callable) -> Callable[[], None
     return rollback
 
 
+# --- HMI restart over SSH (gentle, HMI-only) -------------------------------------------------
+# ``appreset`` restarts just the HMI app (not the OS), so the menu re-reads the Plugins dir
+# without a full reboot. The tool lives at one of these paths; it is NOT boloreset/transport/flash
+# (bootloader / service modes — never touch those). On some heads appreset returns 0 but does not
+# actually reset (missing libsys_dsi_servicebroker); a real restart gives HmiMain3D a *new* PID, so
+# we verify by PID. When appreset doesn't take, reboot the stock way instead: ``evocode reset``
+# (UDS 11 01, a full re-read with no power-cycle).
+_ONOFF_BINS = ("/opt/core/bin/OnOffDSICommander", "/opt/car/bin/OnOffDSICommander")
+
+
+def _hmi_pid(rem: Remote) -> Optional[str]:
+    """PID of HmiMain3D on the unit (QNX ``pidin``), or None if not found / pidin absent."""
+    rc, out, _e = rem.run("pidin -F '%p %n'")
+    if rc != 0:
+        return None
+    for line in out.splitlines():
+        if "HmiMain3D" in line:
+            tok = line.split()
+            if tok and tok[0].isdigit():
+                return tok[0]
+    return None
+
+
+def restart_hmi(rem: Remote, *, wait: int = 20, log: Callable = print) -> bool:
+    """Restart only the HMI (``OnOffDSICommander appreset``), verified by a new HmiMain3D PID.
+
+    Returns True only if HmiMain3D actually came back with a *different* PID (appreset can return 0
+    yet not reset). Never touches boloreset/transport/flash. When it doesn't take, reboot the stock
+    way: ``evocode reset`` (UDS 11 01).  ponytail: assumes QNX ``pidin``; no-op-safe if it's absent.
+    """
+    onoff = next((b for b in _ONOFF_BINS if _exists(rem, b)), None)
+    if not onoff:
+        _rc, out, _e = rem.run("command -v OnOffDSICommander")
+        onoff = out.strip() or None
+    if not onoff:
+        log("  restart: no OnOffDSICommander on the unit — reboot with `evocode reset` (UDS 11 01)")
+        return False
+    before = _hmi_pid(rem)
+    rem.run("%s appreset" % _q(onoff))
+    time.sleep(wait)                                    # appreset returns 0 even when it didn't reset
+    after = _hmi_pid(rem)
+    ok = bool(after) and after != before
+    log("  restart: appreset %s (HmiMain3D %s -> %s)"
+        % ("OK" if ok else "did NOT take — reboot with `evocode reset`", before, after))
+    return ok
+
+
+def _do_restart(rem: Remote, restart: Optional[str], log: Callable) -> None:
+    """Run the post-swap restart: the ``appreset`` sentinel -> restart_hmi, else a literal command."""
+    if restart == "appreset":
+        restart_hmi(rem, log=log)
+    elif restart:
+        rc, _o, e = rem.run(restart)
+        log("  restart: %s%s" % (restart, "" if rc == 0 else "  -> rc=%d %s" % (rc, e.strip()[:120])))
+
+
 def deploy(host: str, artifacts: Sequence[Artifact], *, mount: str = "/fs/sda0",
            restart: Optional[str] = None, collectors: Sequence[str] = (),
            start_collectors_cmd: Optional[str] = None, commit: bool = False,
@@ -196,7 +253,8 @@ def deploy(host: str, artifacts: Sequence[Artifact], *, mount: str = "/fs/sda0",
             for step in fw.plan(a.remote_path, mount, a.remote_path + ".new", len(a.data()), restart=None):
                 log("    %s: %s" % (os.path.basename(a.remote_path), step))
         if restart:
-            log("  restart: %s" % restart)
+            log("  restart: %s" % ("OnOffDSICommander appreset (HMI-only, PID-verified)"
+                                   if restart == "appreset" else restart))
         return False
 
     if not os.environ.get("NBTEVO_OWN_VIN"):
@@ -220,9 +278,7 @@ def deploy(host: str, artifacts: Sequence[Artifact], *, mount: str = "/fs/sda0",
                 own.run("mount -ur %s" % _q(mount))
                 raise
             own.run("mount -ur %s" % _q(mount))
-            if restart:
-                rc, _o, e = own.run(restart)
-                log("  restart: %s%s" % (restart, "" if rc == 0 else "  -> rc=%d %s" % (rc, e.strip()[:120])))
+            _do_restart(own, restart, log)
         log("  *** deployed %d file(s); backups kept as *.orig. Watch the HMI come up. ***" % len(artifacts))
         return True
     finally:
@@ -253,9 +309,7 @@ def revert(host: str, artifacts: Sequence[Artifact], *, mount: str = "/fs/sda0",
                 else:
                     log("  no %s.orig on the unit — skipped" % r)
             own.run("mount -ur %s" % _q(mount))
-            if restart:
-                own.run(restart)
-                log("  restart: %s" % restart)
+            _do_restart(own, restart, log)
         return True
     finally:
         if remote is None and isinstance(own, SshRemote):

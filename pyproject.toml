@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nbtevo-diag"
-version = "0.1.0"
+version = "0.2.0"
 description = "On-head-unit diagnostics for BMW NBT EVO (F30): module DTCs + live engine/vehicle signals over HSFZ/UDS, no OBD adapter"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -17,13 +17,13 @@ classifiers = [
     "Topic :: Software Development :: Embedded Systems",
     "Operating System :: OS Independent",
 ]
-# Transport/UDS come from evocode (same diagnostic plane), not yet on PyPI — install it
-# from its repo first (see README): pip install "evocode @ git+.../evocode.git@v0.4.0".
-# Phase 0 runs from a dev machine over ENET; Phase 1 ports the collector + HMI plugin
-# to run natively on the head unit.
+# Transport/UDS come from evocode (same diagnostic plane), on PyPI as `evocode`. The core needs
+# only that; the `deploy` extra pulls evocode's `ssh` extra (paramiko) to ship the native app to
+# the head unit over its dev SSH. Phase 0 runs from a dev machine over ENET.
 dependencies = ["evocode>=0.4"]
 
 [project.optional-dependencies]
+deploy = ["evocode[ssh]"]       # `nbtevo-diag deploy` over the dev SSH (brings paramiko in)
 test = ["pytest>=7"]
 
 [project.urls]

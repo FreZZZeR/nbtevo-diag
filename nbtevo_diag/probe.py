@@ -20,7 +20,7 @@ try:
     from . import transport
 except ImportError:  # allow running this file directly for the pure selftest
     transport = None
-from .signals import ALL, Signal, by_confidence
+from .signals import ALL, UDS, Signal, by_confidence
 
 
 @dataclass
@@ -59,30 +59,38 @@ def answering_dids(hsfz, ecu: int, start: int = 0x4000, end: int = 0x5FFF) -> Li
     return scan_dids(hsfz, ecu, range(start, end + 1))
 
 
-# candidate DIDs worth trying first for the N57, grouped by what we're hunting.
-# (These are hypotheses — many come from the B58 gas reference; prove each on the car.)
-N57_HUNT = {
-    "boost/ambient": [0x4205, 0x4201, 0x4200, 0x4206],
-    "rail_pressure": [0x56D7, 0x4432, 0x4433],
-    "oil_pressure": [0x586F, 0x4A50],
-    "coolant/oil_temp": [0x4300, 0x4301, 0x4A40],
-    "turbo/vgt": [0x4A30, 0x4A31, 0x4A32],
-    "dpf/scr": [0x4B00, 0x4B01, 0x4C00],
-}
+# What to try first on the car comes from the catalog (signals.py) — the single source of
+# truth — not a second hand-kept list here. Each `bmw-candidate` is a B58-gas DID with a known
+# address and its own ECU (e.g. transmission temp is on EGS 0x18, not the DME): the prover reads
+# each to see which answer on the N57, then you validate the scaling and promote it to a map.
+# AFR is deliberately absent from the catalog; ignition timing is present but flagged N/A-diesel.
+def candidates() -> List[Signal]:
+    """Catalog signals worth probing first: BMW UDS DIDs with a known address."""
+    return [s for s in by_confidence("bmw-candidate") if s.service == UDS and s.addr]
 
 
-def hunt(hsfz, ecu: int = 0x12) -> dict:
-    """Try the curated N57 hunt list; return {group: [DidHit...]}."""
-    return {g: scan_dids(hsfz, ecu, dids) for g, dids in N57_HUNT.items()}
+def hunt(hsfz) -> dict:
+    """Probe the catalog's candidate DIDs, each on its OWN ECU; {group: [DidHit...]}.
+    Addresses and ECUs are read from signals.py, so this can't drift from the catalog."""
+    out: dict = {}
+    for s in candidates():
+        out.setdefault(s.group, []).extend(scan_dids(hsfz, s.ecu, [s.addr]))
+    return out
 
 
 def selftest():
     """Pure checks that don't touch a car."""
     assert any(s.confidence == "probe" for s in ALL)
-    assert all(isinstance(d, int) for ds in N57_HUNT.values() for d in ds)
+    cand = {(s.ecu, s.addr) for s in candidates()}
+    # the two the old hand-list silently dropped must now be covered — trans temp on the EGS:
+    assert (0x12, 0x580F) in cand, "intake-air candidate 0x580F missing from the hunt"
+    assert (0x18, 0xDA12) in cand, "trans temp must hunt on EGS 0x18, not the DME"
+    assert all(addr for _ecu, addr in cand), "a candidate leaked a 0x0000 placeholder address"
     return True
 
 
 if __name__ == "__main__":
     selftest()
-    print("probe selftest OK; hunt groups:", list(N57_HUNT))
+    cand = candidates()
+    print("probe selftest OK; %d catalog candidates across groups: %s"
+          % (len(cand), sorted({s.group for s in cand})))

@@ -133,7 +133,7 @@ def cmd_scan(a) -> int:
     h = transport.connect(a.host, a.timeout)
     try:
         if a.hunt:
-            for group, hits in probemod.hunt(h, ecu).items():
+            for group, hits in probemod.hunt(h).items():
                 print("== %s ==" % group)
                 for hh in hits:
                     print("  DID %04X  %s" % (hh.did, hh.raw if hh.ok else "(%s)" % hh.note))
@@ -252,7 +252,7 @@ def main(argv: Optional[list] = None) -> int:
 
     p = sub.add_parser("scan"); _host(p)
     p.add_argument("--ecu", default="0x12")
-    p.add_argument("--hunt", action="store_true", help="try the curated N57 candidate DIDs")
+    p.add_argument("--hunt", action="store_true", help="try the catalog's N57 candidate DIDs (each on its own ECU; --ecu ignored)")
     p.add_argument("--band", default="4000-5FFF", help="DID range hex, e.g. 4000-5FFF")
     p.set_defaults(fn=cmd_scan)
 

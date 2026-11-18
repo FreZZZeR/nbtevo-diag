@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nbtevo-diag"
-version = "0.2.2"
+version = "0.2.3"
 description = "On-head-unit diagnostics for BMW NBT EVO (F30): module DTCs + live engine/vehicle signals over HSFZ/UDS, no OBD adapter"
 readme = "README.md"
 requires-python = ">=3.9"

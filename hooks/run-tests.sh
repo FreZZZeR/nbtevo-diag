@@ -4,3 +4,4 @@ set -e
 python3 tests/test_signals.py
 python3 tests/test_transport.py
 python3 tests/test_deploy.py
+python3 tests/test_sgbd.py

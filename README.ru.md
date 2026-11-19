@@ -42,6 +42,7 @@ pip install "nbtevo-diag[deploy]"       # + evocode[ssh]/paramiko, чтобы д
 # или из чекаута:  pip install -e .
 
 nbtevo-diag catalog                          # каталог сигналов (офлайн, без машины)
+nbtevo-diag sgbd    FILE.prg --params        # прочитать EDIABAS SGBD -> каталог DID (UDS-22, офлайн)
 nbtevo-diag modules --host 169.254.x.x       # перечислить живые ECU
 nbtevo-diag dtc     --host 169.254.x.x       # прочитать память неисправностей (все модули)
 nbtevo-diag live    --host 169.254.x.x       # coolant/oil/boost/power/... вживую

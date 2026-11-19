@@ -1,6 +1,7 @@
 """nbtevo-diag CLI (Phase 0, dev machine over ENET).
 
   nbtevo-diag catalog                      # list the signal catalog (offline, no car)
+  nbtevo-diag sgbd FILE.prg [--params|--sig]  # read an EDIABAS SGBD -> UDS-22 DID catalog (offline)
   nbtevo-diag modules --host IP            # enumerate awake ECUs
   nbtevo-diag dtc     --host IP [--module 0x12]            # read fault memory
   nbtevo-diag dtc     --host IP --module 0x12 --clear --commit   # clear (gated)
@@ -22,6 +23,7 @@ from . import control
 from . import deploy as depmod
 from . import dtc as dtcmod
 from . import probe as probemod
+from . import sgbd as sgbdmod
 from . import signals as sig
 from . import transport
 
@@ -126,6 +128,11 @@ def cmd_probe(a) -> int:
     finally:
         h.close()
     return 0
+
+
+def cmd_sgbd(a) -> int:
+    mode = "sig" if a.sig else ("params" if a.params else "tables")
+    return sgbdmod.run(a.file, mode)
 
 
 def cmd_scan(a) -> int:
@@ -234,6 +241,14 @@ def main(argv: Optional[list] = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("catalog").set_defaults(fn=cmd_catalog)
+
+    p = sub.add_parser("sgbd", help="read an EDIABAS .prg SGBD: list tables, or extract UDS-22 params (offline)")
+    p.add_argument("file", help="path to a .prg SGBD file")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--tables", action="store_true", help="list tables (default)")
+    g.add_argument("--params", action="store_true", help="extract UDS-22 DIDs with type/scale/position")
+    g.add_argument("--sig", action="store_true", help="emit signals.py _sig(...) candidate lines")
+    p.set_defaults(fn=cmd_sgbd)
 
     p = sub.add_parser("modules"); _host(p); p.set_defaults(fn=cmd_modules)
 

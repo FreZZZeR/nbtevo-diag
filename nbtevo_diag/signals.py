@@ -35,6 +35,8 @@ FEM = 0x10   # body gateway
 
 OBD = "obd"  # service 01 (mode-01 PID)
 UDS = "uds"  # service 22 (ReadDataByIdentifier)
+DYN = "dyn"  # service 2C(02) define F303 from a source DID, then read it (N57 DDE needs this)
+DYN_DID = 0xF303  # the scratch dynamic DID ISTA uses (one shared slot on the ECU)
 
 
 def _u8(d, i=0):  return d[i]
@@ -83,10 +85,15 @@ class Signal:
     verified: bool = False       # set true only after validating on THIS car
 
     def req(self) -> bytes:
-        """The UDS/OBD request bytes for this signal."""
+        """The request that returns this signal's value.
+
+        OBD -> ``01 <pid>``; UDS -> ``22 <hi> <lo>``. A DYN signal is read as ``22 F303``
+        after the transport defines F303 from ``addr`` (a direct ``22 <addr>`` gives NRC 31).
+        """
         if self.service == OBD:
             return bytes([0x01, self.addr])
-        return bytes([0x22, (self.addr >> 8) & 0xFF, self.addr & 0xFF])
+        d = DYN_DID if self.service == DYN else self.addr
+        return bytes([0x22, (d >> 8) & 0xFF, d & 0xFF])
 
     def plausible(self, v) -> bool:
         if v is None or not isinstance(v, (int, float)):
@@ -171,6 +178,19 @@ BMW_CANDIDATE = [
 ]
 
 # ---------------------------------------------------------------------------
+# N57 DDE — real diesel DIDs, but only reachable via a DYNAMIC DID define (2C 02 F303
+# from the source DID, position 1, length = decode width); a direct 22 returns NRC 31.
+# Scalings were matched against ISTA on an N57D30/DDE741 (upstream ID6_apps_prerelease
+# #21). Still not verified on THIS 335d -> bmw-candidate until validated on the car.
+# ---------------------------------------------------------------------------
+N57_DYNAMIC = [
+    _sig("oil_temp_dde", "Oil temp (N57 DDE)", DME, DYN, 0x4517, Dec(2, den=100, offset=-100.0), "°C", "engine_temp", "bmw-candidate", -50, 180,
+         note="2C-F303 dynamic (direct 22=NRC31); raw*0.01-100, ISTA-matched F11 530d #21; validate on car"),
+    _sig("rail_dde", "Rail pressure (N57 DDE)", DME, DYN, 0x4746, Dec(2, num=76295, den=1000000), "bar", "pressure", "bmw-candidate", 0, 2500,
+         note="2C-F303 dynamic (direct 22=NRC31); raw*0.076295 bar, ISTA-matched F11 530d #21 (engine-off); validate on car"),
+]
+
+# ---------------------------------------------------------------------------
 # Probe targets — wanted, but address/decode unknown. The prober discovers these on the car.
 # decode=None => shown as "n/a" until found. ecu/addr are best guesses to seed the scan.
 # ---------------------------------------------------------------------------
@@ -191,7 +211,7 @@ PROBE = [
     _sig("cbs", "CBS service items", FEM, UDS, 0x0000, None, "various", "chassis", "probe", note="oil/brake-fluid/inspection remaining"),
 ]
 
-ALL = STANDARD + COMPUTED + BMW_CANDIDATE + PROBE
+ALL = STANDARD + COMPUTED + BMW_CANDIDATE + N57_DYNAMIC + PROBE
 BY_KEY = {s.key: s for s in ALL}
 
 
@@ -226,6 +246,10 @@ def selftest():
     assert BY_KEY["rpm"].decode(b"\x1a\xf8") == 1726.0        # 0x1AF8/4
     assert BY_KEY["torque_pct"].decode(b"\xa0") == 35         # 0xA0-125
     assert BY_KEY["ctrl_voltage"].decode(b"\x37\x74") == 14.196
+    # N57 dynamic-DID decodes (ISTA-matched scalings) + the two-step request shape
+    assert abs(BY_KEY["oil_temp_dde"].decode(b"\x37\x8c") - 42.2) < 1e-9     # 0x378C/100-100
+    assert abs(BY_KEY["rail_dde"].decode(b"\x27\x10") - 762.95) < 1e-6       # 0x2710*0.076295
+    assert BY_KEY["oil_temp_dde"].req() == b"\x22\xf3\x03"                   # via F303, not 22 4517
     # computed math
     assert abs(boost_bar(230, 100) - 1.3) < 1e-9
     tq = torque_nm(600, 50)

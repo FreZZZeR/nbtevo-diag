@@ -57,6 +57,24 @@ def test_read_signal_did():
     assert r.ok and r.value == 32.0
 
 
+def test_read_signal_dyn():
+    # N57 DDE DIDs answer only via a dynamic-DID define (2C 02 F303 ..), not a direct 22.
+    oil = signals.BY_KEY["oil_temp_dde"]
+    gw = (FakeHsfz()
+          .on(oil.ecu, b"\x2c\x02\xf3\x03\x45\x17\x01\x02", b"\x6c\x02\xf3\x03")
+          .on(oil.ecu, b"\x22\xf3\x03", b"\x62\xf3\x03\x37\x8c"))    # raw 0x378C -> 42.2 C
+    r = transport.read_signal(gw, oil)
+    assert r.ok and abs(r.value - 42.2) < 1e-9, r
+    rail = signals.BY_KEY["rail_dde"]
+    gw = (FakeHsfz()
+          .on(rail.ecu, b"\x2c\x02\xf3\x03\x47\x46\x01\x02", b"\x6c\x02\xf3\x03")
+          .on(rail.ecu, b"\x22\xf3\x03", b"\x62\xf3\x03\x27\x10"))   # raw 0x2710 -> 762.95 bar
+    r = transport.read_signal(gw, rail)
+    assert r.ok and abs(r.value - 762.95) < 1e-6, r
+    # a failed define (unregistered 2C -> NRC) must surface as not-ok, not crash the sweep
+    assert not transport.read_signal(FakeHsfz(), oil).ok
+
+
 def test_nrc_unknown_request_raises():
     gw = FakeHsfz()  # nothing registered -> 7F serviceNotSupported
     try:

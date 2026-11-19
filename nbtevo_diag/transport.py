@@ -13,7 +13,7 @@ import sys
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
-from .signals import OBD, Signal
+from .signals import OBD, DYN, DYN_DID, Signal
 
 # evocode provides the transport. Prefer the installed package; fall back to the dev checkout.
 try:
@@ -89,12 +89,40 @@ def did(hsfz: Hsfz, ecu: int, did_: int) -> bytes:
     return r[3:]
 
 
+def define_dyn(hsfz: Hsfz, ecu: int, source_did: int, pos: int, length: int, dyn: int = DYN_DID) -> None:
+    """UDS 2C 02: (re)define dynamic DID `dyn` as source_did[pos:pos+length]. Raises on NRC.
+
+    N57 DDE live values reject a direct 22 (NRC 31) but answer once defined into this slot,
+    exactly as ISTA does. `pos` is 1-based.
+    """
+    sh, sl = (source_did >> 8) & 0xFF, source_did & 0xFF
+    dh, dl = (dyn >> 8) & 0xFF, dyn & 0xFF
+    r = raw(hsfz, ecu, bytes([0x2C, 0x02, dh, dl, sh, sl, pos & 0xFF, length & 0xFF]))
+    if len(r) < 4 or r[0] != 0x6C or r[1] != 0x02 or r[2] != dh or r[3] != dl:
+        raise DiagError("unexpected 2C reply: " + r.hex())
+
+
+def dyn_did(hsfz: Hsfz, ecu: int, source_did: int, length: int, pos: int = 1) -> bytes:
+    """Define F303 from source_did (pos,length), then read it; return the data bytes.
+
+    ponytail: re-defines the slot on every read (idempotent for one reader). F303 is shared
+    on the DDE, so a second concurrent reader could clobber it — out of our single-laptop scope.
+    """
+    define_dyn(hsfz, ecu, source_did, pos, length)
+    return did(hsfz, ecu, DYN_DID)
+
+
 def read_signal(hsfz: Hsfz, sig: Signal) -> Reading:
     """Read + decode one signal, gating the value through its plausibility bounds."""
     if sig.decode is None or sig.addr == 0:
         return Reading(sig, None, None, False, "no address/decoder yet (probe target)")
     try:
-        data = obd(hsfz, sig.ecu, sig.addr) if sig.service == OBD else did(hsfz, sig.ecu, sig.addr)
+        if sig.service == OBD:
+            data = obd(hsfz, sig.ecu, sig.addr)
+        elif sig.service == DYN:
+            data = dyn_did(hsfz, sig.ecu, sig.addr, sig.decode.width)
+        else:
+            data = did(hsfz, sig.ecu, sig.addr)
     except DiagError as e:
         return Reading(sig, None, None, False, str(e))
     try:

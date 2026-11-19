@@ -38,7 +38,9 @@ def cmd_catalog(a) -> int:
         print("\n== %s ==" % g)
         for s in sig.by_group(g):
             star = {"standard": "✓", "computed": "ƒ", "bmw-candidate": "?", "probe": "·"}[s.confidence]
-            addr = "OBD %02X" % s.addr if s.service == sig.OBD else ("DID %04X" % s.addr if s.addr else "—")
+            addr = ("OBD %02X" % s.addr if s.service == sig.OBD else
+                    "DYN %04X" % s.addr if s.service == sig.DYN else
+                    "DID %04X" % s.addr if s.addr else "—")
             print("  %s %-14s %-22s %-9s %-5s %s" % (star, s.key, s.label, addr, s.unit, s.note))
     print("\nlegend: ✓ standard OBD · ƒ computed · ? BMW-candidate (validate on N57) · · probe (discover)")
     return 0

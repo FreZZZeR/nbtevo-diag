@@ -93,11 +93,18 @@ def _resolve_computed(vals: dict) -> dict:
         out["torque"] = round(tq, 0)
         if "rpm" in vals:
             out["power"] = round(sig.power_kw(tq, vals["rpm"]), 1)
+    # N57 DDE (no mode-01 on this car): boost from absolute - ambient (hPa -> kPa for boost_bar),
+    # power from the DDE's actual torque x rpm
+    if "boost_abs_dde" in vals and "baro_dde" in vals:
+        out["boost"] = round(sig.boost_bar(vals["boost_abs_dde"] / 10, vals["baro_dde"] / 10), 2)
+    if "torque_dde" in vals and "rpm_dde" in vals:
+        out["torque"] = round(vals["torque_dde"], 0)
+        out["power"] = round(sig.power_kw(vals["torque_dde"], vals["rpm_dde"]), 1)
     return out
 
 
 def cmd_live(a) -> int:
-    keys = a.keys or [s.key for s in sig.STANDARD]
+    keys = a.keys or [s.key for s in (sig.N57_DYNAMIC if a.n57 else sig.STANDARD)]
     want = [sig.BY_KEY[k] for k in keys if k in sig.BY_KEY and sig.BY_KEY[k].decode]
     h = transport.connect(a.host, a.timeout)
     try:
@@ -261,6 +268,7 @@ def main(argv: Optional[list] = None) -> int:
 
     p = sub.add_parser("live"); _host(p)
     p.add_argument("keys", nargs="*", help="signal keys (default: all standard)")
+    p.add_argument("--n57", action="store_true", help="read the N57 diesel gauge set (factory DIDs via 2C-F303)")
     p.set_defaults(fn=cmd_live)
 
     p = sub.add_parser("probe"); _host(p)

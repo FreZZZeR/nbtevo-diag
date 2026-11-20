@@ -236,7 +236,8 @@ def params(tables: Dict[str, List[dict]]) -> List[Param]:
     out: List[Param] = []
     skipped = 0
     for r in tables.get("SG_FUNKTIONEN", []):
-        services = [s.strip().upper() for s in (r.get("SERVICE") or "").split(";")]
+        # SGBD builds separate services with ';' or ',' ("22;2C" vs "22,2C") — accept both
+        services = [s.strip().upper() for s in re.split(r"[;,]", r.get("SERVICE") or "")]
         if "22" not in services:
             continue
         did = (r.get("ID") or "").strip().upper().replace("0X", "")
@@ -327,6 +328,10 @@ def _demo() -> bool:
              "MUL": "1", "DIV": "10", "ADD": "0", "EINHEIT": "deg", "RESULTNAME": "STAT_TIMING"},
             {"ID": "5F00", "SERVICE": "2E", "RES_TABELLE": "-", "DATENTYP": "unsigned char"},  # write, skip
             {"ID": "4FED", "SERVICE": "22", "RES_TABELLE": "RT_BITS", "DATENTYP": "-"},
+            # comma-separated services (as in d73n57a0.prg) must still count as 22-readable
+            {"ID": "0x4517", "SERVICE": "22,2C", "RES_TABELLE": "-", "DATENTYP": "unsigned int",
+             "MUL": "0.010000", "DIV": "-", "ADD": "-100.000000", "EINHEIT": "degC",
+             "RESULTNAME": "STAT_MOTOROEL_TEMPERATUR_WERT"},
         ],
         "RT_RAIL": [
             {"RESULTNAME": "STAT_RAILDRUCK_WERT", "DATENTYP": "unsigned int", "MASKE": "0",
@@ -350,6 +355,9 @@ def _demo() -> bool:
     assert by[("402B", "STAT_RAILDRUCK_SOLL")].pos == 2
     # write service skipped
     assert not any(p.did == "5F00" for p in ps)
+    # "22,2C" is read like "22;2C" (the a0 variant uses commas)
+    oil = by[("4517", "STAT_MOTOROEL_TEMPERATUR_WERT")]
+    assert oil.num == 0.01 and oil.offset == -100.0 and oil.width == 2
     # mask grouping: FLAG_A and FLAG_B share byte 0; TAIL falls at byte 1
     assert by[("4FED", "FLAG_A")].pos == 0 and by[("4FED", "FLAG_A")].mask == 0x0F
     assert by[("4FED", "FLAG_B")].pos == 0 and by[("4FED", "FLAG_B")].mask == 0xF0

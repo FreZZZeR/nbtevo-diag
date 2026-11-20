@@ -68,11 +68,21 @@ def test_read_signal_dyn():
     rail = signals.BY_KEY["rail_dde"]
     gw = (FakeHsfz()
           .on(rail.ecu, b"\x2c\x02\xf3\x03\x47\x46\x01\x02", b"\x6c\x02\xf3\x03")
-          .on(rail.ecu, b"\x22\xf3\x03", b"\x62\xf3\x03\x27\x10"))   # raw 0x2710 -> 762.95 bar
+          .on(rail.ecu, b"\x22\xf3\x03", b"\x62\xf3\x03\x27\x10"))   # raw 0x2710 -> 457.77 bar (factory x0.045777)
     r = transport.read_signal(gw, rail)
-    assert r.ok and abs(r.value - 762.95) < 1e-6, r
+    assert r.ok and abs(r.value - 457.77) < 1e-6, r
     # a failed define (unregistered 2C -> NRC) must surface as not-ok, not crash the sweep
     assert not transport.read_signal(FakeHsfz(), oil).ok
+
+
+def test_n57_computed_gauges():
+    # no mode-01 on the N57: boost/power come from the DDE's own DIDs
+    from nbtevo_diag import cli
+    c = cli._resolve_computed({"boost_abs_dde": 2500.0, "baro_dde": 1000.0,
+                               "torque_dde": 600.0, "rpm_dde": 3000.0})
+    assert c["boost"] == 1.5, c                                   # (2500-1000) hPa = 1.5 bar
+    assert c["torque"] == 600.0
+    assert c["power"] == round(signals.power_kw(600.0, 3000.0), 1)  # ~188.5 kW
 
 
 def test_xdrive_dsc25_engage():

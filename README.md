@@ -45,6 +45,7 @@ nbtevo-diag sgbd    FILE.prg --params        # read an EDIABAS SGBD -> UDS-22 DI
 nbtevo-diag modules --host 169.254.x.x       # enumerate awake ECUs
 nbtevo-diag dtc     --host 169.254.x.x       # read fault memory (all modules)
 nbtevo-diag live    --host 169.254.x.x       # coolant/oil/boost/power/... live
+nbtevo-diag live    --host 169.254.x.x --n57 # N57 diesel gauges (factory DIDs via 2C-F303)
 nbtevo-diag scan    --host 169.254.x.x --ecu 0x12 --hunt   # discover N57 DIDs
 ```
 
@@ -63,10 +64,16 @@ nbtevo-diag scan    --host 169.254.x.x --ecu 0x12 --hunt   # discover N57 DIDs
 - **? bmw-candidate** — BMW DIDs from the B58/340i **gasoline** reference (ID6_apps). A *template*,
   not valid for the N57 until proven: boost/ambient `4205`/`4201`, rail `56D7`, oil-press `586F`,
   coolant `4300`, trans-temp `DA12` (EGS). Note: rail scaling is gas-GDI — wrong for common-rail.
-- **· probe** — wanted but address/decode unknown → shown as **n/a** until discovered: **rail
-  pressure, oil pressure** (may be switch-only on the N57), **turbo speed, VGT/wastegate, injection
-  quantity, EGT, DPF soot load / regen / differential pressure, AdBlue (SCR) level**, and —
-  different modules — **brake pad wear, TPMS, CBS service items**.
+- **? N57 (factory)** — the N57 DDE's own measured values, generated from the factory EDIABAS SGBD
+  (`d73n57*.prg`; scalings identical across all four N57 variants): **RPM, speed, coolant / oil /
+  intake / charge-air temps, boost (abs + target) and ambient pressure, air mass, rail pressure,
+  injection quantity, torque, EGT pre-DPF / pre-cat, DPF soot mass + differential pressure, AdBlue
+  level**, battery, ambient temp, fuel level. Read through a `2C`-F303 dynamic DID (they don't
+  answer a direct `22` on this car). Still unverified until checked on the car:
+  `nbtevo-diag live --host IP --n57` (also computes boost bar + power from them).
+- **· probe** — wanted but not exposed / not decoded yet → **n/a**: **oil pressure** (the N57 has
+  only a switch), **turbo speed / actuator position, DPF regen status** (an enum), and — different
+  modules — **brake pad wear, TPMS, CBS service items**.
 
 Commonly wanted beyond your list (street/track/daily), already grouped in the catalog: **DPF soot &
 regen and AdBlue** (diesel-critical), **transmission temp** (track), **EGT**, **battery voltage**,

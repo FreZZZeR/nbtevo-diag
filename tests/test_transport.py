@@ -57,22 +57,49 @@ def test_read_signal_did():
     assert r.ok and r.value == 32.0
 
 
+class AppendingDde:
+    """A DDE where 2C 01 APPENDS to an already-defined dynamic DID (ISO 14229 allows it) and
+    only 2C 03 empties it. Reading two signals in a row is right only if we clear first."""
+
+    def __init__(self, values):                 # {source DID: its data bytes}
+        self.values, self.defined = values, []
+
+    def request(self, ecu, uds, p2_star=6.0):
+        uds = bytes(uds)
+        if uds[:2] == b"\x2c\x03":                                   # clear
+            self.defined = []
+            return b"\x6c\x03" + uds[2:4]
+        if uds[:2] == b"\x2c\x01" and len(uds) == 8:                 # defineByIdentifier
+            src = (uds[4] << 8) | uds[5]
+            if src not in self.values:
+                return bytes([0x7F, 0x2C, 0x31])
+            self.defined.append((src, uds[6], uds[7]))
+            return b"\x6c\x01" + uds[2:4]
+        if uds == b"\x22\xf3\x03" and self.defined:
+            return b"\x62\xf3\x03" + b"".join(self.values[s][p - 1:p - 1 + n] for s, p, n in self.defined)
+        return bytes([0x7F, uds[0], 0x31])      # incl. a direct 22 <did> and the 2C 02 memory form
+
+
 def test_read_signal_dyn():
-    # N57 DDE DIDs answer only via a dynamic-DID define (2C 02 F303 ..), not a direct 22.
-    oil = signals.BY_KEY["oil_temp_dde"]
+    # N57 DDE DIDs answer only through a dynamic DID: clear (2C 03), define by identifier
+    # (2C 01), read 22 F303 — never a direct 22, never the memory-address form (2C 02).
+    dde = AppendingDde({0x4517: b"\x37\x8c", 0x461B: b"\x2e\xe0", 0x4746: b"\x27\x10"})
+    oil, cool, rail = (signals.BY_KEY[k] for k in ("oil_temp_dde", "coolant_dde", "rail_dde"))
+    r = transport.read_signal(dde, oil)
+    assert r.ok and abs(r.value - 42.2) < 1e-9, r                      # 0x378C/100-100
+    r = transport.read_signal(dde, cool)                               # must NOT be the oil bytes again
+    assert r.ok and abs(r.value - 20.0) < 1e-9, r                      # 0x2EE0/100-100
+    r = transport.read_signal(dde, rail)
+    assert r.ok and abs(r.value - 457.77) < 1e-6, r                    # 0x2710*0.045777 (factory)
+    assert abs(transport.read_signal(dde, oil).value - 42.2) < 1e-9    # and back again
+    # an ECU that refuses the clear ("nothing defined yet") still reads: only the define must succeed
     gw = (FakeHsfz()
-          .on(oil.ecu, b"\x2c\x02\xf3\x03\x45\x17\x01\x02", b"\x6c\x02\xf3\x03")
-          .on(oil.ecu, b"\x22\xf3\x03", b"\x62\xf3\x03\x37\x8c"))    # raw 0x378C -> 42.2 C
-    r = transport.read_signal(gw, oil)
-    assert r.ok and abs(r.value - 42.2) < 1e-9, r
-    rail = signals.BY_KEY["rail_dde"]
-    gw = (FakeHsfz()
-          .on(rail.ecu, b"\x2c\x02\xf3\x03\x47\x46\x01\x02", b"\x6c\x02\xf3\x03")
-          .on(rail.ecu, b"\x22\xf3\x03", b"\x62\xf3\x03\x27\x10"))   # raw 0x2710 -> 457.77 bar (factory x0.045777)
-    r = transport.read_signal(gw, rail)
-    assert r.ok and abs(r.value - 457.77) < 1e-6, r
-    # a failed define (unregistered 2C -> NRC) must surface as not-ok, not crash the sweep
+          .on(oil.ecu, b"\x2c\x01\xf3\x03\x45\x17\x01\x02", b"\x6c\x01\xf3\x03")
+          .on(oil.ecu, b"\x22\xf3\x03", b"\x62\xf3\x03\x37\x8c"))
+    assert transport.read_signal(gw, oil).ok
+    # a refused define surfaces as not-ok (no crash), and so does a source DID the ECU lacks
     assert not transport.read_signal(FakeHsfz(), oil).ok
+    assert not transport.read_signal(AppendingDde({}), oil).ok
 
 
 def test_n57_computed_gauges():

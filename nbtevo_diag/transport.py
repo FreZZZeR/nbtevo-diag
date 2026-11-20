@@ -90,23 +90,30 @@ def did(hsfz: Hsfz, ecu: int, did_: int) -> bytes:
 
 
 def define_dyn(hsfz: Hsfz, ecu: int, source_did: int, pos: int, length: int, dyn: int = DYN_DID) -> None:
-    """UDS 2C 02: (re)define dynamic DID `dyn` as source_did[pos:pos+length]. Raises on NRC.
+    """UDS 2C: clear dynamic DID `dyn`, then define it as source_did[pos:pos+length]. Raises on NRC.
 
-    N57 DDE live values reject a direct 22 (NRC 31) but answer once defined into this slot,
-    exactly as ISTA does. `pos` is 1-based.
+    Sub-function 01 is defineByIdentifier (02 is defineByMemoryAddress, 03 clears). The clear
+    comes first because a define on an already-defined DID may APPEND to it, and the read would
+    then start with the previous signal's bytes. N57 DDE live values reject a direct 22 (NRC 31)
+    but answer once defined into this slot, as ISTA does. `pos` is 1-based.
     """
     sh, sl = (source_did >> 8) & 0xFF, source_did & 0xFF
     dh, dl = (dyn >> 8) & 0xFF, dyn & 0xFF
-    r = raw(hsfz, ecu, bytes([0x2C, 0x02, dh, dl, sh, sl, pos & 0xFF, length & 0xFF]))
-    if len(r) < 4 or r[0] != 0x6C or r[1] != 0x02 or r[2] != dh or r[3] != dl:
+    try:
+        raw(hsfz, ecu, bytes([0x2C, 0x03, dh, dl]))
+    except DiagError:
+        pass  # "nothing defined yet" is an NRC on some ECUs; the define below is what must succeed
+    r = raw(hsfz, ecu, bytes([0x2C, 0x01, dh, dl, sh, sl, pos & 0xFF, length & 0xFF]))
+    if len(r) < 4 or r[0] != 0x6C or r[1] != 0x01 or r[2] != dh or r[3] != dl:
         raise DiagError("unexpected 2C reply: " + r.hex())
 
 
 def dyn_did(hsfz: Hsfz, ecu: int, source_did: int, length: int, pos: int = 1) -> bytes:
-    """Define F303 from source_did (pos,length), then read it; return the data bytes.
+    """Clear + define F303 from source_did (pos,length), then read it; return the data bytes.
 
-    ponytail: re-defines the slot on every read (idempotent for one reader). F303 is shared
-    on the DDE, so a second concurrent reader could clobber it — out of our single-laptop scope.
+    ponytail: one signal per define, three round trips per read, and F303 is one shared slot on
+    the DDE (a second concurrent reader would clobber it). For a gauge loop: define every source
+    once, then poll 22 F303 and slice.
     """
     define_dyn(hsfz, ecu, source_did, pos, length)
     return did(hsfz, ecu, DYN_DID)

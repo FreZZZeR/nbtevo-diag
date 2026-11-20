@@ -36,7 +36,7 @@ FEM = 0x10   # body gateway
 
 OBD = "obd"  # service 01 (mode-01 PID)
 UDS = "uds"  # service 22 (ReadDataByIdentifier)
-DYN = "dyn"  # service 2C(02) define F303 from a source DID, then read it (N57 DDE needs this)
+DYN = "dyn"  # service 2C: clear + define (01) F303 from a source DID, then read it (N57 DDE)
 DYN_DID = 0xF303  # the scratch dynamic DID ISTA uses (one shared slot on the ECU)
 
 
@@ -182,7 +182,7 @@ BMW_CANDIDATE = [
 # N57 DDE — the diesel gauge set, generated from the factory EDIABAS SGBD (ISTA d73n57e0.prg;
 # the scalings are identical in all four N57 variants a0/c0/d0/e0). These measured values do
 # NOT answer a direct 22 in the default session on our car (none showed up in the 0x4000-0x5FFF
-# sweep), so they are read through a DYNAMIC DID define: 2C 02 F303 from the source DID,
+# sweep), so they are read through a DYNAMIC DID define: 2C 01 F303 from the source DID,
 # position 1, length = decode width. The SGBD lists them as SERVICE 22;2C, and upstream
 # ID6_apps_prerelease #21 proved the path on an N57/DDE741 (oil temp matched ISTA).
 # Not yet verified on THIS 335d -> bmw-candidate. Notes carry the factory RESULTNAME.
@@ -223,6 +223,8 @@ N57_DYNAMIC = [
          note="STAT_RUSSMASSE_IM_PARTIKELFILTER_WERT"),
     _sig("dpf_dp_dde", "DPF diff pressure (N57)", DME, DYN, 0x44F8, Dec(2, num=45777, den=1000000, offset=-1000.0), "hPa", "aftertreatment", "bmw-candidate", -100, 1000,
          note="STAT_DIFFERENZDRUCK_UEBER_PARTIKELFILTER_WERT"),
+    _sig("dpf_regen_dist_dde", "Distance since DPF regen (N57)", DME, DYN, 0x44BF, Dec(4), "m", "aftertreatment", "bmw-candidate", 0, 2000000,
+         note="STAT_STRECKE_SEIT_ERFOLGREICHER_REGENERATION_WERT"),
     _sig("adblue_level_dde", "AdBlue level (N57)", DME, DYN, 0x5306, Dec(2, num=763, den=500000), "%", "aftertreatment", "bmw-candidate", 0, 100,
          note="STAT_SCR_rUTnkLvl_WERT; not in the a0 variant"),
     _sig("battery_dde", "Battery voltage (N57)", DME, DYN, 0x5242, Dec(2, den=1000), "V", "electrical", "bmw-candidate", 6, 18,
@@ -246,9 +248,7 @@ PROBE = [
     _sig("vgt_pos", "Turbo actuator pos", DME, UDS, 0x0000, None, "%", "forced_induction", "probe",
          note="position not exposed; actuator duty is 4CBF STAT_LADEDRUCKSTELLER_ANSTEUERUNG x0.001526 %"),
     _sig("dpf_regen", "DPF regen active", DME, UDS, 0x0000, None, "bool", "aftertreatment", "probe",
-         note="status is an enum (44C0 / 44C2), needs its text table. Distance since regen = 44BF "
-              "STAT_STRECKE_SEIT_ERFOLGREICHER_REGENERATION (u32, x1 m) — add once the native codegen "
-              "(nbtevo-id6-apps gen_dids.py) handles width 4"),
+         note="status is an enum (44C0 / 44C2), needs its text table; distance is dpf_regen_dist_dde"),
     _sig("pad_front", "Brake pad wear front", FEM, UDS, 0x0000, None, "state", "chassis", "probe", note="NOT DME — chassis/CBS; confirm module+addr"),
     _sig("pad_rear", "Brake pad wear rear", FEM, UDS, 0x0000, None, "state", "chassis", "probe", note="NOT DME — chassis/CBS"),
     _sig("tpms", "Tyre pressures (RDC)", FEM, UDS, 0x0000, None, "kPa", "chassis", "probe", note="RDC/TPMS module"),
@@ -296,6 +296,7 @@ def selftest():
     assert BY_KEY["rpm_dde"].decode(b"\x05\xdc") == 750.0                     # 0x05DC*0.5 = idle
     assert abs(BY_KEY["egt_pre_dpf_dde"].decode(b"\x4e\x20") - 575.62) < 1e-6  # 20000*0.031281-50
     assert abs(BY_KEY["torque_dde"].decode(b"\x6d\x60") - 704.404) < 1e-6     # 28000*0.114443-2500
+    assert BY_KEY["dpf_regen_dist_dde"].decode(b"\x00\x01\x86\xa0") == 100000  # u32 metres
     # every N57 gauge is read through the F303 dynamic slot, never a direct 22
     assert all(s.service == DYN and s.req() == b"\x22\xf3\x03" for s in N57_DYNAMIC)
     # computed math

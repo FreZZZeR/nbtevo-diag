@@ -87,9 +87,19 @@ an independent reference (ISTA / cluster / a logger); otherwise it stays **n/a**
 ## Testing without the car
 
 `python -m pytest tests/` (or `python tests/test_signals.py`) runs the pure checks — catalog
-integrity and decode math — with no car and no evocode. **IDEmu can't test this layer**: the emulator
-doesn't expose the HSFZ diagnostic endpoint (6801), so it's only useful later for rendering the HMI
-plugin, not for the data engine. The data engine is validated on the car (or a mock gateway).
+integrity and decode math — with no car and no evocode. [IDEmu](https://github.com/herrbimmer/IDEmu)
+provides a real QNX/HMI stand for plugin UI tests, with virtual CAN scenarios, record/replay, GPS,
+cluster and HUD. As checked on 2026-11-20 at upstream `d03ecd84f363`, it still has no HSFZ diagnostic
+endpoint (6801): its virtual CAN TCP server is not a UDS gateway. It therefore does not exercise
+this engine's diagnostic transport or validate real N57 DIDs and scalings; those need the car
+(or a mock gateway for protocol tests).
+
+[Multi-firmware PR #16](https://github.com/herrbimmer/IDEmu/pull/16) is open and unmerged as of 2026-11-20:
+head [`d73b049`](https://github.com/FreZZZeR/IDEmu/commit/d73b049d8f69e146b08018e8204a516a9bb7b501) includes main `d03ecd8`; GitHub
+reports `mergeable=true`, `clean`. Its four `007` profiles cold-boot to a live HMI; upstream also
+has the limited 18-03 `006_017_006` profile. Neither validates our `006_016_002`: its full matching
+SWFL/profile and HMI/plugin ABI remain unverified. Virtual CAN and a host-rendered map do not
+validate real N57/DSC data, BMW navigation or FSC acceptance.
 
 ## xDrive control — actuation, with a software fuse
 

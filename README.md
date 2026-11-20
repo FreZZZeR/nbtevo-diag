@@ -113,8 +113,11 @@ nbtevo-diag xdrive --host IP awd --commit    # restore AWD
 ```
 
 > ⚠ Disabling the front axle changes how the car behaves (traction, DSC/ABS). Track / private land
-> only, never on a public road, on your own car, at your own risk. The DSC variant + DIDs come from a
-> 340i (ID6_apps) — validate them on the 335d's DSC before a live write.
+> only, never on a public road, on your own car, at your own risk. Two DSC generations are handled:
+> 340i-style (`0x0F2510`/`0x0F2850`, engine **off**) and the **F30 N57's DSC_25 (`0x0F1860`)** — engage
+> with the engine **running**, mode read back on the LMV transfer case (`0x19`). The DSC_25 path is
+> factory-confirmed from ISTA `dsc_25.prg` + `lmv_01.prg`; still verify the read-back on your car
+> (upstream #68 reports `0x0F1860` may not engage).
 
 ## Deploy — ship the native app to the head unit
 

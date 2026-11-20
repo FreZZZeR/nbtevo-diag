@@ -75,6 +75,30 @@ def test_read_signal_dyn():
     assert not transport.read_signal(FakeHsfz(), oil).ok
 
 
+def test_xdrive_dsc25_engage():
+    # F30 N57 DSC_25 (0x0F1860): engine RUNNING, stopped, Park -> engage RWD, read back on the LMV.
+    from nbtevo_diag import control as c
+    gw = (FakeHsfz()
+          .on_did(c.DSC, c.DID_VARIANT, bytes([0x0F, 0x18, 0x60]))   # variant 0x0F1860
+          .on_obd(c.DME, 0x0D, bytes([0]))                            # speed 0
+          .on_did(c.EGS, c.DID_GEAR, bytes([0]))                      # Park
+          .on_obd(c.DME, 0x0C, bytes([0x0A, 0x00]))                   # rpm != 0 -> engine running
+          .on(c.DSC, b"\x2e\xdb\xe1\x00", b"\x6e\xdb\xe1")            # 2E DBE1 00 -> positive
+          .on_did(c.LMV, c.DID_LMV_MODE, bytes([0x09, 0xc4, 0x70])))  # LMV byte-2 0x70 -> RWD
+    st = c.status(gw)
+    assert st["variant"] == 0x0F1860 and st["supported"] and st["mode"] == "RWD", st
+    done, msg = c.set_mode(gw, c.RWD, commit=True)
+    assert done, msg
+    # engine OFF must block DSC_25 engage (engine-running is required, not waivable)
+    off = (FakeHsfz()
+           .on_did(c.DSC, c.DID_VARIANT, bytes([0x0F, 0x18, 0x60]))
+           .on_obd(c.DME, 0x0D, bytes([0]))
+           .on_did(c.EGS, c.DID_GEAR, bytes([0]))
+           .on_obd(c.DME, 0x0C, bytes([0, 0])))                       # rpm 0 -> engine off
+    done2, msg2 = c.set_mode(off, c.RWD, commit=True)
+    assert not done2 and "RUNNING" in msg2, msg2
+
+
 def test_nrc_unknown_request_raises():
     gw = FakeHsfz()  # nothing registered -> 7F serviceNotSupported
     try:
